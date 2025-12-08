@@ -1,0 +1,7 @@
+(clear)
+(load 0_Main.clp)
+(load 1_Env.clp)
+(load maps/map_1.clp)
+(load 4_Agent_Smart.clp)
+(reset)
+(run)
