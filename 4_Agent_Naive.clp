@@ -169,7 +169,7 @@
 ;; REGOLA GUESS FALLBACK - Quando non abbiamo più fire
 ;; Salience 3: priorità bassa, dopo tutte le regole di fire
 ;; Limite: sceglie cella arbitraria tra quelle promettenti, non ottimizza per score;
-;;         decrementa contatori assumendo guess corretto (può diventare inconsistente)
+;; Nota: Non decrementiamo contatori riga/colonna perchè guess troppo speculativo
 ;; =============================================================================
 
 (defrule guess-any-promising (declare (salience 3))

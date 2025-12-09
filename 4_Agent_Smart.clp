@@ -3,6 +3,15 @@
 ;  ---------------------------------------------
 (defmodule AGENT (import MAIN ?ALL) (import ENV ?ALL) (export ?ALL))
 
+;; Note sull'Agente Smart:
+
+; - Fa deduzioni acqua ad alta priorità (salience 20): zero su riga/colonna, diagonali dei pezzi noti, bordi attorno a top/bot/left/right/sub e lati dei middle orientati, riducendo le celle candidate.
+; - Converte ogni k-cell di nave in guess certa (salience 10), decrementando i contatori riga/colonna.
+; - Estende navi a una cella di distanza dai pezzi noti (salience 8) senza toccare i contatori: prova la casella adiacente coerente con l’orientamento (left/right/top/bot/middle).
+; - Se restano fire, esegue una heuristica nr+nc (salience 5) evitando celle note, acqua nota o già pianificate.
+; - Se finite le fire ma restano guess, fa guess speculative sempre con heuristica nr+nc (salience 3) senza toccare contatori.
+; - Se nulla è applicabile, solve (salience -10).
+
 
 ;; ===================== SEZIONE 1: DEDUZIONE (salience 20) ====================
 
@@ -15,9 +24,12 @@
 ;; Se riga ha 0 navi rimanenti, tutte le celle non-note di quella riga sono acqua
 (defrule deduce-water-row-zero (declare (salience 20))
     (k-per-row (row ?x) (num 0))
-    (k-per-col (col ?y))                    ; itera su tutte le colonne
-    (not (k-cell (x ?x) (y ?y)))            ; cella non già nota
-    (not (known-water ?x ?y))               ; non già dedotta come acqua
+    (k-per-col (col ?y))                        ; itera su tutte le colonne
+    (not (k-cell (x ?x) (y ?y)))                ; cella non già nota
+    (not (known-water ?x ?y))                   ; non già dedotta come acqua
+    (not (guess ?x ?y))
+    (not (exec (action guess) (x ?x) (y ?y)))   ; evitata cella pianificata per guess
+    (not (exec (action fire) (x ?x) (y ?y)))    ; evitata cella pianificata per fire    
 =>
     (assert (known-water ?x ?y))
     (printout t "DEDUCE water [" ?x "," ?y "] row " ?x " has 0 ships" crlf)
@@ -26,9 +38,12 @@
 ;; Se colonna ha 0 navi rimanenti, tutte le celle non-note di quella colonna sono acqua
 (defrule deduce-water-col-zero (declare (salience 20))
     (k-per-col (col ?y) (num 0))
-    (k-per-row (row ?x))                    ; itera su tutte le righe
-    (not (k-cell (x ?x) (y ?y)))            ; cella non già nota
-    (not (known-water ?x ?y))               ; non già dedotta come acqua
+    (k-per-row (row ?x))
+    (not (k-cell (x ?x) (y ?y)))
+    (not (known-water ?x ?y))
+    (not (guess ?x ?y))
+    (not (exec (action guess) (x ?x) (y ?y)))
+    (not (exec (action fire) (x ?x) (y ?y)))
 =>
     (assert (known-water ?x ?y))
     (printout t "DEDUCE water [" ?x "," ?y "] col " ?y " has 0 ships" crlf)
@@ -47,6 +62,7 @@
     (k-cell (x ?x) (y ?y) (content top | bot | left | right | middle | sub))
     (test (and (> ?x 0) (> ?y 0)))          ; cella diagonale esiste
     (not (known-water =(- ?x 1) =(- ?y 1)))
+    (not (guess =(- ?x 1) =(- ?y 1)))       ; non già guessato
 =>
     (assert (known-water (- ?x 1) (- ?y 1)))
     (printout t "DEDUCE water [" (- ?x 1) "," (- ?y 1) "] diagonal of [" ?x "," ?y "]" crlf)
@@ -55,8 +71,9 @@
 ;; Diagonale alto-destra (x-1, y+1)
 (defrule deduce-water-diag-up-right (declare (salience 20))
     (k-cell (x ?x) (y ?y) (content top | bot | left | right | middle | sub))
-    (test (and (> ?x 0) (< ?y 9)))          ; cella diagonale esiste
+    (test (and (> ?x 0) (< ?y 9)))
     (not (known-water =(- ?x 1) =(+ ?y 1)))
+    (not (guess =(- ?x 1) =(+ ?y 1)))
 =>
     (assert (known-water (- ?x 1) (+ ?y 1)))
     (printout t "DEDUCE water [" (- ?x 1) "," (+ ?y 1) "] diagonal of [" ?x "," ?y "]" crlf)
@@ -65,8 +82,9 @@
 ;; Diagonale basso-sinistra (x+1, y-1)
 (defrule deduce-water-diag-down-left (declare (salience 20))
     (k-cell (x ?x) (y ?y) (content top | bot | left | right | middle | sub))
-    (test (and (< ?x 9) (> ?y 0)))          ; cella diagonale esiste
+    (test (and (< ?x 9) (> ?y 0)))
     (not (known-water =(+ ?x 1) =(- ?y 1)))
+    (not (guess =(+ ?x 1) =(- ?y 1)))
 =>
     (assert (known-water (+ ?x 1) (- ?y 1)))
     (printout t "DEDUCE water [" (+ ?x 1) "," (- ?y 1) "] diagonal of [" ?x "," ?y "]" crlf)
@@ -75,8 +93,9 @@
 ;; Diagonale basso-destra (x+1, y+1)
 (defrule deduce-water-diag-down-right (declare (salience 20))
     (k-cell (x ?x) (y ?y) (content top | bot | left | right | middle | sub))
-    (test (and (< ?x 9) (< ?y 9)))          ; cella diagonale esiste
+    (test (and (< ?x 9) (< ?y 9)))
     (not (known-water =(+ ?x 1) =(+ ?y 1)))
+    (not (guess =(+ ?x 1) =(+ ?y 1)))
 =>
     (assert (known-water (+ ?x 1) (+ ?y 1)))
     (printout t "DEDUCE water [" (+ ?x 1) "," (+ ?y 1) "] diagonal of [" ?x "," ?y "]" crlf)
@@ -92,6 +111,7 @@
     (k-cell (x ?x) (y ?y) (content top))
     (test (> ?x 0))
     (not (known-water =(- ?x 1) ?y))
+    (not (guess =(- ?x 1) ?y))
 =>
     (assert (known-water (- ?x 1) ?y))
     (printout t "DEDUCE water [" (- ?x 1) "," ?y "] above TOP" crlf)
@@ -102,6 +122,7 @@
     (k-cell (x ?x) (y ?y) (content bot))
     (test (< ?x 9))
     (not (known-water =(+ ?x 1) ?y))
+    (not (guess =(+ ?x 1) ?y))
 =>
     (assert (known-water (+ ?x 1) ?y))
     (printout t "DEDUCE water [" (+ ?x 1) "," ?y "] below BOT" crlf)
@@ -112,6 +133,7 @@
     (k-cell (x ?x) (y ?y) (content left))
     (test (> ?y 0))
     (not (known-water ?x =(- ?y 1)))
+    (not (guess ?x =(- ?y 1)))
 =>
     (assert (known-water ?x (- ?y 1)))
     (printout t "DEDUCE water [" ?x "," (- ?y 1) "] left of LEFT" crlf)
@@ -122,6 +144,7 @@
     (k-cell (x ?x) (y ?y) (content right))
     (test (< ?y 9))
     (not (known-water ?x =(+ ?y 1)))
+    (not (guess ?x =(+ ?y 1)))
 =>
     (assert (known-water ?x (+ ?y 1)))
     (printout t "DEDUCE water [" ?x "," (+ ?y 1) "] right of RIGHT" crlf)
@@ -132,6 +155,7 @@
     (k-cell (x ?x) (y ?y) (content sub))
     (test (> ?x 0))
     (not (known-water =(- ?x 1) ?y))
+    (not (guess =(- ?x 1) ?y))
 =>
     (assert (known-water (- ?x 1) ?y))
     (printout t "DEDUCE water [" (- ?x 1) "," ?y "] above SUB" crlf)
@@ -142,6 +166,7 @@
     (k-cell (x ?x) (y ?y) (content sub))
     (test (< ?x 9))
     (not (known-water =(+ ?x 1) ?y))
+    (not (guess =(+ ?x 1) ?y))
 =>
     (assert (known-water (+ ?x 1) ?y))
     (printout t "DEDUCE water [" (+ ?x 1) "," ?y "] below SUB" crlf)
@@ -152,6 +177,7 @@
     (k-cell (x ?x) (y ?y) (content sub))
     (test (> ?y 0))
     (not (known-water ?x =(- ?y 1)))
+    (not (guess ?x =(- ?y 1)))
 =>
     (assert (known-water ?x (- ?y 1)))
     (printout t "DEDUCE water [" ?x "," (- ?y 1) "] left of SUB" crlf)
@@ -162,6 +188,7 @@
     (k-cell (x ?x) (y ?y) (content sub))
     (test (< ?y 9))
     (not (known-water ?x =(+ ?y 1)))
+    (not (guess ?x =(+ ?y 1)))
 =>
     (assert (known-water ?x (+ ?y 1)))
     (printout t "DEDUCE water [" ?x "," (+ ?y 1) "] right of SUB" crlf)
@@ -172,42 +199,100 @@
 ;; Logica: i lati di una nave (non le estremità) sono acqua
 ;; =============================================================================
 
-;; A sinistra e destra di pezzi verticali (top, middle verticale, bot)
-(defrule deduce-water-leftof-vertical (declare (salience 20))
+;; Middle orizzontale confermato: acqua a sinistra
+(defrule deduce-water-left-of-hor-middle (declare (salience 20))
+    (k-cell (x ?x) (y ?y) (content middle))
+    (k-cell (x =(+ ?x 1)) (y ?y) (content top | middle | bot))
+    (k-cell (x =(- ?x 1)) (y ?y) (content top | middle | bot))
+    (test (> ?y 0))
+    (not (known-water ?x =(- ?y 1)))
+    (not (guess ?x =(- ?y 1)))
+=>
+    (assert (known-water ?x (- ?y 1)))
+    (printout t "DEDUCE water left of hor middle [" ?x "," ?y "]" crlf)
+)
+
+;; Middle orizzontale confermato: acqua a destra
+(defrule deduce-water-right-of-hor-middle (declare (salience 20))
+    (k-cell (x ?x) (y ?y) (content middle))
+    (k-cell (x =(+ ?x 1)) (y ?y) (content top | middle | bot))
+    (k-cell (x =(- ?x 1)) (y ?y) (content top | middle | bot))
+    (test (< ?y 9))
+    (not (known-water ?x =(+ ?y 1)))
+    (not (guess ?x =(+ ?y 1)))
+=>
+    (assert (known-water ?x (+ ?y 1)))
+    (printout t "DEDUCE water right of hor middle [" ?x "," ?y "]" crlf)
+)
+
+;; Middle verticale confermato: acqua sopra
+(defrule deduce-water-above-ver-middle (declare (salience 20))
+    (k-cell (x ?x) (y ?y) (content middle))
+    (k-cell (x ?x) (y =(+ ?y 1)) (content left | middle | right))
+    (k-cell (x ?x) (y =(- ?y 1)) (content left | middle | right))
+    (test (> ?x 0))
+    (not (known-water =(- ?x 1) ?y))
+    (not (guess =(- ?x 1) ?y))
+=>
+    (assert (known-water (- ?x 1) ?y))
+    (printout t "DEDUCE water above ver middle [" ?x "," ?y "]" crlf)
+)
+
+;; Middle verticale confermato: acqua sotto
+(defrule deduce-water-below-ver-middle (declare (salience 20))
+    (k-cell (x ?x) (y ?y) (content middle))
+    (k-cell (x ?x) (y =(+ ?y 1)) (content left | middle | right))
+    (k-cell (x ?x) (y =(- ?y 1)) (content left | middle | right))
+    (test (< ?x 9))
+    (not (known-water =(+ ?x 1) ?y))
+    (not (guess =(+ ?x 1) ?y))
+=>
+    (assert (known-water (+ ?x 1) ?y))
+    (printout t "DEDUCE water below ver middle [" ?x "," ?y "]" crlf)
+)
+
+;; A sinistra di top/bot acqua
+(defrule deduce-water-leftof-hor (declare (salience 20))
     (k-cell (x ?x) (y ?y) (content top | bot))
     (test (> ?y 0))
     (not (known-water ?x =(- ?y 1)))
+    (not (guess ?x =(- ?y 1)))
 =>
     (assert (known-water ?x (- ?y 1)))
-    (printout t "DEDUCE water [" ?x "," (- ?y 1) "] left of vertical piece" crlf)
+    (printout t "DEDUCE water [" ?x "," (- ?y 1) "] left of hor piece" crlf)
 )
 
-(defrule deduce-water-rightof-vertical (declare (salience 20))
+;; A destra di top/bot acqua
+(defrule deduce-water-rightof-hor (declare (salience 20))
     (k-cell (x ?x) (y ?y) (content top | bot))
     (test (< ?y 9))
     (not (known-water ?x =(+ ?y 1)))
+    (not (guess ?x =(+ ?y 1)))
 =>
     (assert (known-water ?x (+ ?y 1)))
-    (printout t "DEDUCE water [" ?x "," (+ ?y 1) "] right of vertical piece" crlf)
+    (printout t "DEDUCE water [" ?x "," (+ ?y 1) "] right of hor piece" crlf)
 )
 
-;; Sopra e sotto pezzi orizzontali (left, middle orizzontale, right)
-(defrule deduce-water-above-horizontal (declare (salience 20))
+;; Sopra left/right acqua
+(defrule deduce-water-above-ver (declare (salience 20))
     (k-cell (x ?x) (y ?y) (content left | right))
     (test (> ?x 0))
     (not (known-water =(- ?x 1) ?y))
+    (not (guess =(- ?x 1) ?y))
 =>
     (assert (known-water (- ?x 1) ?y))
-    (printout t "DEDUCE water [" (- ?x 1) "," ?y "] above horizontal piece" crlf)
+    (printout t "DEDUCE water [" (- ?x 1) "," ?y "] above ver piece" crlf)
 )
 
-(defrule deduce-water-below-horizontal (declare (salience 20))
+;; Sotto left/right acqua
+(defrule deduce-water-below-ver (declare (salience 20))
     (k-cell (x ?x) (y ?y) (content left | right))
     (test (< ?x 9))
     (not (known-water =(+ ?x 1) ?y))
+    (not (guess =(+ ?x 1) ?y))
 =>
     (assert (known-water (+ ?x 1) ?y))
-    (printout t "DEDUCE water [" (+ ?x 1) "," ?y "] below horizontal piece" crlf)
+    (printout t "DEDUCE water [" (+ ?x 1) "," ?y "] below ver piece" crlf)
 )
 
 ;; ===================== SEZIONE 2: GUESS CERTI (salience 10) ==================
@@ -235,16 +320,16 @@
 )
 
 
-;; ===================== SEZIONE 3: ESTENSIONI (salience 9) ====================
+;; ===================== SEZIONE 3: ESTENSIONI (salience 8) ====================
 
 ;; =============================================================================
 ;; ESTENSIONI NAVE - Guess su celle adiacenti a pezzi noti
 ;; Salience 9: priorità alta
-;; Verifica orientamento per middle, controlla contatori per celle nuove
+;; Nota: non toccano i contatori e non creano k-unknown per evitare inconsistenze.
 ;; =============================================================================
 
 ;; Estensione LEFT: da right, o da middle orizzontale confermato
-(defrule guess-extend-left (declare (salience 9))
+(defrule guess-extend-left (declare (salience 8))
     (status (step ?s) (currently running))
     (not (exec (step ?s)))
     (moves (guesses ?ng&:(> ?ng 0)))
@@ -252,26 +337,25 @@
         (k-cell (x ?x) (y ?y) (content right))
         (and
             (k-cell (x ?x) (y ?y) (content middle))
-            (or (k-cell (x ?x) (y =(+ ?y 1)) (content middle | right))
-                (k-cell (x ?x) (y =(- ?y 1)) (content middle | left)))
+            (k-cell (x ?x) (y =(+ ?y 1)) (content middle | right))
         )
     )
     (test (> ?y 0))
     (not (k-cell (x ?x) (y =(- ?y 1))))
+    (not (known-water ?x =(- ?y 1)))
+    (not (guess ?x =(- ?y 1)))
     (not (exec (action guess) (x ?x) (y =(- ?y 1))))
     (not (exec (action fire) (x ?x) (y =(- ?y 1))))
-    ?rr <- (k-per-row (row ?x) (num ?nr&:(> ?nr 0)))
-    ?rc <- (k-per-col (col =(- ?y 1)) (num ?nc&:(> ?nc 0)))
+    (k-per-row (row ?x) (num ?nr&:(> ?nr 0)))
+    (k-per-col (col =(- ?y 1)) (num ?nc&:(> ?nc 0)))
 =>
     (assert (exec (step ?s) (action guess) (x ?x) (y (- ?y 1))))
-    (modify ?rr (num (- ?nr 1)))
-    (modify ?rc (num (- ?nc 1)))
     (printout t "GUESS extend LEFT [" ?x "," (- ?y 1) "]" crlf)
     (pop-focus)
 )
 
 ;; Estensione RIGHT: da left, o da middle orizzontale confermato
-(defrule guess-extend-right (declare (salience 9))
+(defrule guess-extend-right (declare (salience 8))
     (status (step ?s) (currently running))
     (not (exec (step ?s)))
     (moves (guesses ?ng&:(> ?ng 0)))
@@ -279,26 +363,25 @@
         (k-cell (x ?x) (y ?y) (content left))
         (and
             (k-cell (x ?x) (y ?y) (content middle))
-            (or (k-cell (x ?x) (y =(- ?y 1)) (content middle | left))
-                (k-cell (x ?x) (y =(+ ?y 1)) (content middle | right)))
+            (k-cell (x ?x) (y =(- ?y 1)) (content middle | left))
         )
     )
     (test (< ?y 9))
     (not (k-cell (x ?x) (y =(+ ?y 1))))
+    (not (known-water ?x =(+ ?y 1)))
+    (not (guess ?x =(+ ?y 1)))
     (not (exec (action guess) (x ?x) (y =(+ ?y 1))))
     (not (exec (action fire) (x ?x) (y =(+ ?y 1))))
-    ?rr <- (k-per-row (row ?x) (num ?nr&:(> ?nr 0)))
-    ?rc <- (k-per-col (col =(+ ?y 1)) (num ?nc&:(> ?nc 0)))
+    (k-per-row (row ?x) (num ?nr&:(> ?nr 0)))
+    (k-per-col (col =(+ ?y 1)) (num ?nc&:(> ?nc 0)))
 =>
     (assert (exec (step ?s) (action guess) (x ?x) (y (+ ?y 1))))
-    (modify ?rr (num (- ?nr 1)))
-    (modify ?rc (num (- ?nc 1)))
     (printout t "GUESS extend RIGHT [" ?x "," (+ ?y 1) "]" crlf)
     (pop-focus)
 )
 
 ;; Estensione UP: da bot, o da middle verticale confermato
-(defrule guess-extend-up (declare (salience 9))
+(defrule guess-extend-up (declare (salience 8))
     (status (step ?s) (currently running))
     (not (exec (step ?s)))
     (moves (guesses ?ng&:(> ?ng 0)))
@@ -306,26 +389,25 @@
         (k-cell (x ?x) (y ?y) (content bot))
         (and
             (k-cell (x ?x) (y ?y) (content middle))
-            (or (k-cell (x =(+ ?x 1)) (y ?y) (content middle | bot))
-                (k-cell (x =(- ?x 1)) (y ?y) (content middle | top)))
+            (k-cell (x =(+ ?x 1)) (y ?y) (content middle | bot))
         )
     )
     (test (> ?x 0))
     (not (k-cell (x =(- ?x 1)) (y ?y)))
+    (not (known-water =(- ?x 1) ?y))
+    (not (guess =(- ?x 1) ?y))
     (not (exec (action guess) (x =(- ?x 1)) (y ?y)))
     (not (exec (action fire) (x =(- ?x 1)) (y ?y)))
-    ?rr <- (k-per-row (row =(- ?x 1)) (num ?nr&:(> ?nr 0)))
-    ?rc <- (k-per-col (col ?y) (num ?nc&:(> ?nc 0)))
+    (k-per-row (row =(- ?x 1)) (num ?nr&:(> ?nr 0)))
+    (k-per-col (col ?y) (num ?nc&:(> ?nc 0)))
 =>
     (assert (exec (step ?s) (action guess) (x (- ?x 1)) (y ?y)))
-    (modify ?rr (num (- ?nr 1)))
-    (modify ?rc (num (- ?nc 1)))
     (printout t "GUESS extend UP [" (- ?x 1) "," ?y "]" crlf)
     (pop-focus)
 )
 
 ;; Estensione DOWN: da top, o da middle verticale confermato
-(defrule guess-extend-down (declare (salience 9))
+(defrule guess-extend-down (declare (salience 8))
     (status (step ?s) (currently running))
     (not (exec (step ?s)))
     (moves (guesses ?ng&:(> ?ng 0)))
@@ -333,23 +415,79 @@
         (k-cell (x ?x) (y ?y) (content top))
         (and
             (k-cell (x ?x) (y ?y) (content middle))
-            (or (k-cell (x =(- ?x 1)) (y ?y) (content middle | top))
-                (k-cell (x =(+ ?x 1)) (y ?y) (content middle | bot)))
+            (k-cell (x =(- ?x 1)) (y ?y) (content middle | top))
         )
     )
     (test (< ?x 9))
     (not (k-cell (x =(+ ?x 1)) (y ?y)))
+    (not (known-water =(+ ?x 1) ?y))
+    (not (guess =(+ ?x 1) ?y))
     (not (exec (action guess) (x =(+ ?x 1)) (y ?y)))
     (not (exec (action fire) (x =(+ ?x 1)) (y ?y)))
-    ?rr <- (k-per-row (row =(+ ?x 1)) (num ?nr&:(> ?nr 0)))
-    ?rc <- (k-per-col (col ?y) (num ?nc&:(> ?nc 0)))
+    (k-per-row (row =(+ ?x 1)) (num ?nr&:(> ?nr 0)))
+    (k-per-col (col ?y) (num ?nc&:(> ?nc 0)))
 =>
     (assert (exec (step ?s) (action guess) (x (+ ?x 1)) (y ?y)))
-    (modify ?rr (num (- ?nr 1)))
-    (modify ?rc (num (- ?nc 1)))
     (printout t "GUESS extend DOWN [" (+ ?x 1) "," ?y "]" crlf)
     (pop-focus)
 )
+
+
+;; ===================== SEZIONE 3B: FIRE ORIENTAMENTO (salience 6) ===========
+
+;; Da rivedere - non attivata
+
+;; FIRE di orientamento: chiarisce l'asse di un pezzo appena trovato
+; (defrule fire-orient-piece (declare (salience 6))
+;     (status (step ?s) (currently running))
+;     (not (exec (step ?s)))
+;     (moves (fires ?nf&:(> ?nf 0)))
+;     ;; pezzo noto
+;     (k-cell (x ?bx) (y ?by) (content top | bot | left | right | middle | sub))
+;     ;; se ha già un vicino k-cell ortogonale, l'orientamento è noto: salta
+;     (not (k-cell (x =(- ?bx 1)) (y ?by)))
+;     (not (k-cell (x =(+ ?bx 1)) (y ?by)))
+;     (not (k-cell (x ?bx) (y =(- ?by 1))))
+;     (not (k-cell (x ?bx) (y =(+ ?by 1))))
+;     ;; candidato vicino ortogonale
+;     (k-per-row (row ?r) (num ?nr&:(> ?nr 0)))
+;     (k-per-col (col ?c) (num ?nc&:(> ?nc 0)))
+;     (or
+;         (and (test (> ?bx 0)) (test (= ?r (- ?bx 1))) (test (= ?c ?by)))
+;         (and (test (< ?bx 9)) (test (= ?r (+ ?bx 1))) (test (= ?c ?by)))
+;         (and (test (> ?by 0)) (test (= ?r ?bx)) (test (= ?c (- ?by 1))))
+;         (and (test (< ?by 9)) (test (= ?r ?bx)) (test (= ?c (+ ?by 1))))
+;     )
+;     (not (k-cell (x ?r) (y ?c)))
+;     (not (known-water ?r ?c))
+;     (not (guess ?r ?c))
+;     (not (exec (action fire) (x ?r) (y ?c)))
+;     (not (exec (action guess) (x ?r) (y ?c)))
+;     ;; nessun vicino migliore con score maggiore
+;     (not
+;         (and
+;             (k-cell (x ?bx2) (y ?by2) (content top | bot | left | right | middle | sub))
+;             (k-per-row (row ?r2) (num ?nr2&:(> ?nr2 0)))
+;             (k-per-col (col ?c2) (num ?nc2&:(> ?nc2 0)))
+;             (or
+;                 (and (test (> ?bx2 0)) (test (= ?r2 (- ?bx2 1))) (test (= ?c2 ?by2)))
+;                 (and (test (< ?bx2 9)) (test (= ?r2 (+ ?bx2 1))) (test (= ?c2 ?by2)))
+;                 (and (test (> ?by2 0)) (test (= ?r2 ?bx2)) (test (= ?c2 (- ?by2 1))))
+;                 (and (test (< ?by2 9)) (test (= ?r2 ?bx2)) (test (= ?c2 (+ ?by2 1))))
+;             )
+;             (not (k-cell (x ?r2) (y ?c2)))
+;             (not (known-water ?r2 ?c2))
+;             (not (guess ?r2 ?c2))
+;             (not (exec (action fire) (x ?r2) (y ?c2)))
+;             (not (exec (action guess) (x ?r2) (y ?c2)))
+;             (test (> (+ ?nr2 ?nc2) (+ ?nr ?nc)))
+;         )
+;     )
+; =>
+;     (assert (exec (step ?s) (action fire) (x ?r) (y ?c)))
+;     (printout t "FIRE orientamento vicino a [" ?bx "," ?by "] -> [" ?r "," ?c "] score:" (+ ?nr ?nc) crlf)
+;     (pop-focus)
+; )
 
 
 ;; ===================== SEZIONE 4: FIRE (salience 5) ==========================
@@ -363,11 +501,10 @@
     (status (step ?s) (currently running))
     (not (exec (step ?s)))
     (moves (fires ?nf&:(> ?nf 0)))
-    ;; Cella candidata
-    (k-per-row (row ?r) (num ?nr&:(> ?nr 0)))
-    (k-per-col (col ?c) (num ?nc&:(> ?nc 0)))
-    (not (k-cell (x ?r) (y ?c)))
-    (not (known-water ?r ?c))               ; esclusione celle dedotte come acqua
+    (k-per-row (row ?r) (num ?nr&:(> ?nr 0)))   ; righe con navi rimanenti
+    (k-per-col (col ?c) (num ?nc&:(> ?nc 0)))   ; colonne con navi rimanenti
+    (not (k-cell (x ?r) (y ?c)))                ; cella non ancora nota
+    (not (known-water ?r ?c))                   ; esclusione celle dedotte come acqua
     (not (exec (action fire) (x ?r) (y ?c)))
     (not (exec (action guess) (x ?r) (y ?c)))
     ;; Nessuna cella libera con score migliore
@@ -377,14 +514,14 @@
             (k-per-col (col ?c2) (num ?nc2&:(> ?nc2 0)))
             (test (> (+ ?nr2 ?nc2) (+ ?nr ?nc)))
             (not (k-cell (x ?r2) (y ?c2)))
-            (not (known-water ?r2 ?c2))     ; esclusione celle dedotte come acqua 
+            (not (known-water ?r2 ?c2))
             (not (exec (action fire) (x ?r2) (y ?c2)))
             (not (exec (action guess) (x ?r2) (y ?c2)))
         )
     )
 =>
     (assert (exec (step ?s) (action fire) (x ?r) (y ?c)))
-    (printout t "FIRE best [" ?r "," ?c "] score:" (+ ?nr ?nc) crlf)
+    (printout t "FIRE best [" ?r "," ?c "]" crlf)
     (pop-focus)
 )
 
@@ -401,13 +538,13 @@
     (status (step ?s) (currently running))
     (not (exec (step ?s)))
     (moves (fires 0) (guesses ?ng&:(> ?ng 0)))
-    ;; Cella candidata
     (k-per-row (row ?r) (num ?nr&:(> ?nr 0)))
     (k-per-col (col ?c) (num ?nc&:(> ?nc 0)))
     (not (k-cell (x ?r) (y ?c)))
     (not (known-water ?r ?c))
     (not (exec (action fire) (x ?r) (y ?c)))
     (not (exec (action guess) (x ?r) (y ?c)))
+    
     ;; Nessuna cella libera con score migliore
     (not
         (and
@@ -423,12 +560,11 @@
 =>
     (assert (exec (step ?s) (action guess) (x ?r) (y ?c)))
     ;; NON decrementare - guess speculativo, potrebbe essere sbagliato
-    (printout t "GUESS speculative [" ?r "," ?c "] score:" (+ ?nr ?nc) crlf)
+    (printout t "GUESS speculative [" ?r "," ?c "]" crlf)
     (pop-focus)
 )
 
-
-;; ===================== SEZIONE 6: SOLVE (salience -10) =======================
+;; ===================== SEZIONE 5B: SOLVE (salience -10) =======================
 
 ;; =============================================================================
 ;; SOLVE - Terminazione
@@ -443,3 +579,18 @@
     (printout t "SOLVE - nessuna mossa utile" crlf)
     (pop-focus)
 )
+
+;; ===================== SEZIONE 7: UNGUESS RIPULITURA (salience 15) ===========
+
+; ;; Se una cella è stata marcata acqua (known-water o k-cell water) e c'è un guess, ripulisce
+; (defrule unguess-on-water (declare (salience 15))
+;     (status (step ?s) (currently running))
+;     (not (exec (step ?s)))
+;     (guess ?x ?y)
+;     (or (known-water ?x ?y) (k-cell (x ?x) (y ?y) (content water)))
+;     (moves (guesses ?ng&:(< ?ng 20)))
+; =>
+;     (assert (exec (step ?s) (action unguess) (x ?x) (y ?y)))
+;     (printout t "UNGUESS su cella acqua [" ?x "," ?y "]" crlf)
+;     (pop-focus)
+; )
