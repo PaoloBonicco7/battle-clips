@@ -295,6 +295,19 @@
     (printout t "DEDUCE water [" (+ ?x 1) "," ?y "] below ver piece" crlf)
 )
 
+;; =============================================================================
+;; DEDUZIONE ACQUA DA K-CELL WATER
+;; Se l'ambiente rivela una k-cell acqua, la tratto come known-water
+;; =============================================================================
+
+(defrule deduce-water-from-kcell-water (declare (salience 20))
+    (k-cell (x ?x) (y ?y) (content water))
+    (not (known-water ?x ?y))
+ =>
+    (assert (known-water ?x ?y))
+    (printout t "DEDUCE water [" ?x "," ?y "] k-cell water" crlf)
+)
+
 ;; ===================== SEZIONE 2: GUESS CERTI (salience 10) ==================
 
 ;; =============================================================================
@@ -433,63 +446,6 @@
 )
 
 
-;; ===================== SEZIONE 3B: FIRE ORIENTAMENTO (salience 6) ===========
-
-;; Da rivedere - non attivata
-
-;; FIRE di orientamento: chiarisce l'asse di un pezzo appena trovato
-; (defrule fire-orient-piece (declare (salience 6))
-;     (status (step ?s) (currently running))
-;     (not (exec (step ?s)))
-;     (moves (fires ?nf&:(> ?nf 0)))
-;     ;; pezzo noto
-;     (k-cell (x ?bx) (y ?by) (content top | bot | left | right | middle | sub))
-;     ;; se ha già un vicino k-cell ortogonale, l'orientamento è noto: salta
-;     (not (k-cell (x =(- ?bx 1)) (y ?by)))
-;     (not (k-cell (x =(+ ?bx 1)) (y ?by)))
-;     (not (k-cell (x ?bx) (y =(- ?by 1))))
-;     (not (k-cell (x ?bx) (y =(+ ?by 1))))
-;     ;; candidato vicino ortogonale
-;     (k-per-row (row ?r) (num ?nr&:(> ?nr 0)))
-;     (k-per-col (col ?c) (num ?nc&:(> ?nc 0)))
-;     (or
-;         (and (test (> ?bx 0)) (test (= ?r (- ?bx 1))) (test (= ?c ?by)))
-;         (and (test (< ?bx 9)) (test (= ?r (+ ?bx 1))) (test (= ?c ?by)))
-;         (and (test (> ?by 0)) (test (= ?r ?bx)) (test (= ?c (- ?by 1))))
-;         (and (test (< ?by 9)) (test (= ?r ?bx)) (test (= ?c (+ ?by 1))))
-;     )
-;     (not (k-cell (x ?r) (y ?c)))
-;     (not (known-water ?r ?c))
-;     (not (guess ?r ?c))
-;     (not (exec (action fire) (x ?r) (y ?c)))
-;     (not (exec (action guess) (x ?r) (y ?c)))
-;     ;; nessun vicino migliore con score maggiore
-;     (not
-;         (and
-;             (k-cell (x ?bx2) (y ?by2) (content top | bot | left | right | middle | sub))
-;             (k-per-row (row ?r2) (num ?nr2&:(> ?nr2 0)))
-;             (k-per-col (col ?c2) (num ?nc2&:(> ?nc2 0)))
-;             (or
-;                 (and (test (> ?bx2 0)) (test (= ?r2 (- ?bx2 1))) (test (= ?c2 ?by2)))
-;                 (and (test (< ?bx2 9)) (test (= ?r2 (+ ?bx2 1))) (test (= ?c2 ?by2)))
-;                 (and (test (> ?by2 0)) (test (= ?r2 ?bx2)) (test (= ?c2 (- ?by2 1))))
-;                 (and (test (< ?by2 9)) (test (= ?r2 ?bx2)) (test (= ?c2 (+ ?by2 1))))
-;             )
-;             (not (k-cell (x ?r2) (y ?c2)))
-;             (not (known-water ?r2 ?c2))
-;             (not (guess ?r2 ?c2))
-;             (not (exec (action fire) (x ?r2) (y ?c2)))
-;             (not (exec (action guess) (x ?r2) (y ?c2)))
-;             (test (> (+ ?nr2 ?nc2) (+ ?nr ?nc)))
-;         )
-;     )
-; =>
-;     (assert (exec (step ?s) (action fire) (x ?r) (y ?c)))
-;     (printout t "FIRE orientamento vicino a [" ?bx "," ?by "] -> [" ?r "," ?c "] score:" (+ ?nr ?nc) crlf)
-;     (pop-focus)
-; )
-
-
 ;; ===================== SEZIONE 4: FIRE (salience 5) ==========================
 
 ;; =============================================================================
@@ -580,17 +536,17 @@
     (pop-focus)
 )
 
-;; ===================== SEZIONE 7: UNGUESS RIPULITURA (salience 15) ===========
+;; ===================== SEZIONE 6: UNGUESS RIPULITURA (salience 15) ===========
 
-; ;; Se una cella è stata marcata acqua (known-water o k-cell water) e c'è un guess, ripulisce
-; (defrule unguess-on-water (declare (salience 15))
-;     (status (step ?s) (currently running))
-;     (not (exec (step ?s)))
-;     (guess ?x ?y)
-;     (or (known-water ?x ?y) (k-cell (x ?x) (y ?y) (content water)))
-;     (moves (guesses ?ng&:(< ?ng 20)))
-; =>
-;     (assert (exec (step ?s) (action unguess) (x ?x) (y ?y)))
-;     (printout t "UNGUESS su cella acqua [" ?x "," ?y "]" crlf)
-;     (pop-focus)
-; )
+;; Se una cella è stata marcata acqua (known-water o k-cell water) e c'è un guess, ripulisce
+(defrule unguess-on-water (declare (salience 15))
+    (status (step ?s) (currently running))
+    (not (exec (step ?s)))
+    (guess ?x ?y)
+    (or (known-water ?x ?y) (k-cell (x ?x) (y ?y) (content water)))
+    (moves (guesses ?ng&:(< ?ng 20)))
+=>
+    (assert (exec (step ?s) (action unguess) (x ?x) (y ?y)))
+    (printout t "UNGUESS su cella acqua [" ?x "," ?y "]" crlf)
+    (pop-focus)
+)
