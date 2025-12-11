@@ -338,7 +338,7 @@
 ;; =============================================================================
 ;; ESTENSIONI NAVE - Guess su celle adiacenti a pezzi noti
 ;; Salience 9: priorità alta
-;; Nota: non toccano i contatori e non creano k-unknown per evitare inconsistenze.
+;; Nota: non toccano i contatori e non creano k-unknown per evitare inconsistenze
 ;; =============================================================================
 
 ;; Estensione LEFT: da right, o da middle orizzontale confermato
@@ -539,6 +539,7 @@
 ;; ===================== SEZIONE 6: UNGUESS RIPULITURA (salience 15) ===========
 
 ;; Se una cella è stata marcata acqua (known-water o k-cell water) e c'è un guess, ripulisce
+;; Non viene mai attivata con questa implementazione 
 (defrule unguess-on-water (declare (salience 15))
     (status (step ?s) (currently running))
     (not (exec (step ?s)))

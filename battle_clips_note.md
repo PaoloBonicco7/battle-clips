@@ -562,13 +562,3 @@ Dove:
 **Obiettivo**: Massimizzare guess corretti e navi affondate, minimizzare errori e risorse non usate.
 
 ---
-
-## TODO per il Progetto
-
-- [ ] Studiare gli agenti di esempio in `notes/`
-- [ ] Implementare strategia base
-- [ ] Implementare strategia avanzata
-- [ ] Testare con diversi scenari (case1, no_obs, mapEnvironment)
-- [ ] Creare nuovi scenari con map_editor
-- [ ] Confrontare punteggi delle strategie
-- [ ] Documentare limiti e comportamento senza celle note iniziali

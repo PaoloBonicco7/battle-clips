@@ -23,7 +23,6 @@
 
 ;; 1 - guess su cella già nota contenente nave
 ;; Attivazione: esiste una k-cell con contenuto nave su cui non abbiamo ancora fatto guess
-;; Limite: nessuno, questa azione è sempre corretta
 (defrule guess-known-boat (declare (salience 10))
     (status (step ?s) (currently running))
     (not (exec (step ?s)))                                  ; una sola azione per step
@@ -168,7 +167,7 @@
 ;; =============================================================================
 ;; REGOLA GUESS FALLBACK - Quando non abbiamo più fire
 ;; Salience 3: priorità bassa, dopo tutte le regole di fire
-;; Limite: sceglie cella arbitraria tra quelle promettenti, non ottimizza per score;
+;; Limite: sceglie cella arbitraria tra quelle promettenti, non ottimizza per score
 ;; Nota: Non decrementiamo contatori riga/colonna perchè guess troppo speculativo
 ;; =============================================================================
 
