@@ -191,12 +191,10 @@
 ;; =============================================================================
 ;; REGOLA SOLVE - Terminazione
 ;; Salience -10: ultima risorsa, si attiva solo quando nessun'altra regola può
-;; Limite: termina appena non sa cosa fare, anche se ha ancora mosse disponibili
 ;; =============================================================================
 
 (defrule give-up (declare (salience -10))
     (status (step ?s) (currently running))
-    ; (moves (fires 0) (guesses 0))           ; esaurite tutte le mosse
     (not (exec (step ?s)))                  ; nessuna azione pianificata
  =>
     (assert (exec (step ?s) (action solve)))
