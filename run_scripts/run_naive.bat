@@ -1,7 +1,7 @@
 (clear)
 (load 0_Main.clp)
 (load 1_Env.clp)
-(load maps/map_3.clp)
+(load maps/map_3b.clp)
 (load 4_Agent_Naive.clp)
 (reset)
 (run)
